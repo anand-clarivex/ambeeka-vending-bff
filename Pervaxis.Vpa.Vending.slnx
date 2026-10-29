@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Pervaxis.Vpa.Vending/Pervaxis.Vpa.Vending.csproj" />
+  <Project Path="tests/Pervaxis.Vpa.Vending.Tests/Pervaxis.Vpa.Vending.Tests.csproj" />
+</Solution>

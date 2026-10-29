@@ -1,0 +1,9 @@
+{
+  "product": "vpa",
+  "verticalSlug": "vending",
+  "serviceName": "vending-service",
+  "serviceType": "RestApi",
+  "componentPrefix": "vpa",
+  "cloudProvider": "AWS",
+  "genesisModules": []
+}

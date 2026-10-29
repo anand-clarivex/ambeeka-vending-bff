@@ -1,0 +1,18 @@
+{
+  "product": "vpa",
+  "service": "vending-service",
+  "type": "RestApi",
+  "namespace": "Pervaxis.Vpa.Vending",
+  "template": "rest-api",
+  "forge": {
+    "version": "1.0.0+f6a5329929c8d809073edc27f0eaee5358fb51b9",
+    "build": "f6a5329929c8d809073edc27f0eaee5358fb51b9"
+  },
+  "printedAt": "2026-10-28T20:59:30.7023685Z",
+  "genesis": {
+    "version": "3.4.4"
+  },
+  "cloud": "AWS",
+  "framework": "net10.0",
+  "modules": []
+}
