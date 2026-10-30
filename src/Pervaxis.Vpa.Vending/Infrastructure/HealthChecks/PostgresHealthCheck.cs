@@ -3,7 +3,9 @@ using Npgsql;
 
 namespace Pervaxis.Vpa.Vending.Infrastructure.HealthChecks;
 
-public sealed class PostgresHealthCheck(IConfiguration configuration) : IHealthCheck
+public sealed class PostgresHealthCheck(
+    IConfiguration configuration,
+    ILogger<PostgresHealthCheck> logger) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
@@ -31,6 +33,7 @@ public sealed class PostgresHealthCheck(IConfiguration configuration) : IHealthC
         }
         catch (Exception exception)
         {
+            logger.LogError(exception, "PostgreSQL readiness check failed.");
             return HealthCheckResult.Unhealthy(
                 "PostgreSQL connection failed.",
                 exception);

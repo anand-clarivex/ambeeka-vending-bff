@@ -42,7 +42,10 @@ public static class SerilogExtensions
                 .Enrich.FromLogContext()
                 .Enrich.WithSpan();
 
-            if (context.HostingEnvironment.IsDevelopment())
+            var isRunningInEcs = !string.IsNullOrWhiteSpace(
+                Environment.GetEnvironmentVariable("ECS_CONTAINER_METADATA_URI_V4"));
+
+            if (context.HostingEnvironment.IsDevelopment() || isRunningInEcs)
             {
                 loggerConfig.WriteTo.Console(new RenderedCompactJsonFormatter());
             }
