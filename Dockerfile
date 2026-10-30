@@ -14,6 +14,10 @@ RUN dotnet build "Pervaxis.Vpa.Vending.csproj" -c $BUILD_CONFIGURATION -o /app/b
 
 FROM build AS publish
 RUN dotnet publish "Pervaxis.Vpa.Vending.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN mkdir -p /app/publish/certs \
+    && curl --fail --silent --show-error --location \
+        https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+        --output /app/publish/certs/global-bundle.pem
 
 FROM base AS final
 WORKDIR /app

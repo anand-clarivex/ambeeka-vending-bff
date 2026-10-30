@@ -31,3 +31,56 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           fail_ci_if_error: false
+
+  publish-container:
+    name: Build and publish container image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPOSITORY: ambeeka-vending-ecr
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::072531338071:role/AmbeekaGitHubEcrPushRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          image_uri="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          bootstrap_uri="$ECR_REGISTRY/$ECR_REPOSITORY:bootstrap"
+
+          docker build --pull --tag "$image_uri" .
+
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Image tag $IMAGE_TAG already exists; skipping its immutable push."
+          else
+            docker push "$image_uri"
+          fi
+
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag=bootstrap \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "The bootstrap tag already exists."
+          else
+            docker tag "$image_uri" "$bootstrap_uri"
+            docker push "$bootstrap_uri"
+          fi
