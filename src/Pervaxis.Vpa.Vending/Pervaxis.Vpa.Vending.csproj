@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Ambeeka.Calculation\Ambeeka.Calculation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="AWSSDK.SecretsManager" />
     <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" />

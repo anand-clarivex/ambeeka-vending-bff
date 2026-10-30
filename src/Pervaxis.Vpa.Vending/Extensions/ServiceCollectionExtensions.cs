@@ -19,6 +19,8 @@
 using Pervaxis.Vpa.Vending.Infrastructure.Extensions;
 using Pervaxis.Vpa.Vending.Infrastructure.Http;
 using Pervaxis.Vpa.Vending.Services;
+using Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Services;
+using Ambeeka.Calculation;
 
 namespace Pervaxis.Vpa.Vending.Extensions;
 
@@ -29,6 +31,11 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddScoped<IVendingService, VendingServiceService>();
+        services.AddScoped<PosWorkbookReader>();
+        services.AddScoped<BillingImportService>();
+        services.AddSingleton<BillingCalculationEngine>();
+        services.AddScoped<BillingCalculationService>();
+        services.AddScoped<BillingPosCleanupService>();
 
         // HTTP client with full DelegatingHandler chain:
         // CorrelationId → JwtPropagation → HttpLogging → Resilience (retry + circuit breaker + timeout)
