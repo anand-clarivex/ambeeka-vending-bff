@@ -56,6 +56,7 @@ public sealed class VendingDbContext(DbContextOptions<VendingDbContext> options)
         billingImport.HasKey(item => item.Id);
         billingImport.Property(item => item.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
         billingImport.Property(item => item.OriginalFileName).HasColumnName("original_file_name").HasMaxLength(255).IsRequired();
+        billingImport.Property(item => item.DisplayName).HasColumnName("display_name").HasMaxLength(255).IsRequired();
         billingImport.Property(item => item.ContentSha256).HasColumnName("content_sha256").HasMaxLength(64).IsRequired();
         billingImport.Property(item => item.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
         billingImport.Property(item => item.TransactionCount).HasColumnName("transaction_count");
@@ -92,6 +93,7 @@ public sealed class VendingDbContext(DbContextOptions<VendingDbContext> options)
         billingCalculation.HasKey(item => item.Id);
         billingCalculation.Property(item => item.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
         billingCalculation.Property(item => item.EmployerName).HasColumnName("employer_name").HasMaxLength(255).IsRequired();
+        billingCalculation.Property(item => item.CalculationName).HasColumnName("calculation_name").HasMaxLength(255).IsRequired();
         billingCalculation.Property(item => item.Year).HasColumnName("year");
         billingCalculation.Property(item => item.Month).HasColumnName("month");
         billingCalculation.Property(item => item.Status).HasColumnName("status").HasMaxLength(32).IsRequired();

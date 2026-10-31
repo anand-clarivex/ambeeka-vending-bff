@@ -8,11 +8,17 @@ using Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Models;
 
 namespace Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Services;
 
-public sealed class BillingImportService(VendingDbContext dbContext, PosWorkbookReader workbookReader)
+public sealed class BillingImportService(
+    VendingDbContext dbContext,
+    PosWorkbookReader workbookReader,
+    BillingProductReviewService productReviewService)
 {
     public const long MaximumUploadBytes = 15 * 1024 * 1024;
 
-    public async Task<BillingImportResponse> UploadAsync(IFormFile? file, CancellationToken cancellationToken)
+    public async Task<BillingImportResponse> UploadAsync(
+        IFormFile? file,
+        string? requestedDisplayName,
+        CancellationToken cancellationToken)
     {
         if (file is null || file.Length == 0)
             throw InvalidFile("Select a non-empty .xlsx workbook to upload.");
@@ -20,6 +26,15 @@ public sealed class BillingImportService(VendingDbContext dbContext, PosWorkbook
             throw InvalidFile("The workbook exceeds the 15 MB upload limit.");
         if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
             throw InvalidFile("Only .xlsx workbooks are supported.");
+
+        var safeFileName = Path.GetFileName(file.FileName.Replace('\\', '/'));
+        if (safeFileName.Length > 255)
+            throw InvalidFile("The workbook filename must be 255 characters or fewer.");
+        var displayName = string.IsNullOrWhiteSpace(requestedDisplayName)
+            ? Path.GetFileNameWithoutExtension(safeFileName)
+            : requestedDisplayName.Trim();
+        if (displayName.Length > 255)
+            throw InvalidFile("The import display name must be 255 characters or fewer.");
 
         await using var memory = new MemoryStream((int)file.Length);
         await file.CopyToAsync(memory, cancellationToken);
@@ -31,7 +46,11 @@ public sealed class BillingImportService(VendingDbContext dbContext, PosWorkbook
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.ContentSha256 == contentSha256, cancellationToken);
         if (existingImport is not null)
-            throw Duplicate(existingImport);
+        {
+            memory.Position = 0;
+            var duplicateWorkbook = workbookReader.Read(memory);
+            throw Duplicate(existingImport, duplicateWorkbook.IgnoredRows);
+        }
 
         memory.Position = 0;
         PosWorkbookResult parsed;
@@ -53,18 +72,19 @@ public sealed class BillingImportService(VendingDbContext dbContext, PosWorkbook
         }
 
         if (parsed.Issues.Count > 0)
-            throw new InvalidPosWorkbookException(parsed.Issues);
+            throw new InvalidPosWorkbookException(parsed.Issues, parsed.IgnoredRows);
 
         var now = DateTimeOffset.UtcNow;
-        var safeFileName = Path.GetFileName(file.FileName.Replace('\\', '/'));
-        if (safeFileName.Length > 255)
-            throw InvalidFile("The workbook filename must be 255 characters or fewer.");
+        var importId = Guid.NewGuid();
+        var products = await productReviewService.GetProductsAsync(cancellationToken);
+        var pricingReview = BillingProductReviewService.Analyze(importId, parsed.Transactions, products);
         var import = new BillingImport
         {
-            Id = Guid.NewGuid(),
+            Id = importId,
             OriginalFileName = safeFileName,
+            DisplayName = displayName,
             ContentSha256 = contentSha256,
-            Status = "Validated",
+            Status = pricingReview.RowsNeedingReview > 0 ? "NeedsReview" : "Validated",
             TransactionCount = parsed.Transactions.Count,
             RowsWithoutProductName = parsed.RowsWithoutProductName,
             CreatedAt = now,
@@ -85,28 +105,35 @@ public sealed class BillingImportService(VendingDbContext dbContext, PosWorkbook
             if (concurrentImport is null)
                 throw;
 
-            throw Duplicate(concurrentImport);
+            throw Duplicate(concurrentImport, parsed.IgnoredRows);
         }
 
         return new BillingImportResponse(
             import.Id,
             import.OriginalFileName,
+            import.DisplayName,
             import.Status,
             import.TransactionCount,
             parsed.RowsWithoutProductName,
-            import.CreatedAt);
+            import.CreatedAt,
+            pricingReview,
+            parsed.IgnoredRows);
     }
 
     private static InvalidPosWorkbookException InvalidFile(string message) =>
         new([new BillingImportValidationIssue(null, "File", message)]);
 
-    private static DuplicateBillingImportException Duplicate(BillingImport import) =>
+    private static DuplicateBillingImportException Duplicate(
+        BillingImport import,
+        IReadOnlyList<BillingImportIgnoredRow> ignoredRows) =>
         new(new BillingImportDuplicateResponse(
             "This exact workbook has already been imported.",
             import.Id,
             import.OriginalFileName,
+            import.DisplayName,
             import.Status,
-            import.CreatedAt));
+            import.CreatedAt,
+            ignoredRows));
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.GetBaseException() is PostgresException

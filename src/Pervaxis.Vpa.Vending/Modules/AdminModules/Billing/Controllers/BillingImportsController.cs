@@ -13,6 +13,7 @@ namespace Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Controllers;
 [Route("/api/v1/admin/billing/imports")]
 public sealed class BillingImportsController(
     BillingImportService importService,
+    BillingProductReviewService productReviewService,
     VendingDbContext dbContext) : ControllerBase
 {
     /// <summary>Lists imported workbook metadata, newest first.</summary>
@@ -37,6 +38,7 @@ public sealed class BillingImportsController(
             .Select(item => new BillingImportHistoryItem(
                 item.Id,
                 item.OriginalFileName,
+                item.DisplayName,
                 item.Status,
                 item.TransactionCount,
                 item.RowsWithoutProductName,
@@ -45,6 +47,18 @@ public sealed class BillingImportsController(
             .ToListAsync(cancellationToken);
 
         return Ok(new BillingImportHistoryResponse(page, pageSize, totalCount, items));
+    }
+
+    /// <summary>Rechecks an imported workbook against the current POS product aliases and prices.</summary>
+    [HttpGet("{id:guid}/pricing-review")]
+    [ProducesResponseType(typeof(BillingImportProductReviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BillingImportProductReviewResponse>> GetPricingReviewAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var review = await productReviewService.GetImportReviewAsync(id, cancellationToken);
+        return review is null ? NotFound() : Ok(review);
     }
 
     /// <summary>Permanently deletes an import that has not been used by a billing calculation.</summary>
@@ -91,7 +105,7 @@ public sealed class BillingImportsController(
     {
         try
         {
-            var response = await importService.UploadAsync(request.File, cancellationToken);
+            var response = await importService.UploadAsync(request.File, request.DisplayName, cancellationToken);
             return StatusCode(StatusCodes.Status201Created, response);
         }
         catch (DuplicateBillingImportException exception)
@@ -102,7 +116,8 @@ public sealed class BillingImportsController(
         {
             return BadRequest(new BillingImportValidationResponse(
                 "The POS workbook could not be imported.",
-                exception.Issues));
+                exception.Issues,
+                exception.IgnoredRows));
         }
     }
 }

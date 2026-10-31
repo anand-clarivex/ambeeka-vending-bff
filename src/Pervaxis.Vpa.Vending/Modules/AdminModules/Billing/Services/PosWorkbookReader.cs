@@ -40,6 +40,7 @@ public sealed class PosWorkbookReader
         var indexes = ResolveColumns(header.Values);
         var transactions = new List<BillingImportTransaction>();
         var issues = new List<BillingImportValidationIssue>();
+        var ignoredRows = new List<BillingImportIgnoredRow>();
         var rowsWithoutProductName = 0;
 
         for (var rowIndex = header.Index + 1; rowIndex < rows.Length; rowIndex++)
@@ -52,15 +53,20 @@ public sealed class PosWorkbookReader
                 continue;
 
             var productSelectionInfo = Cell(values, indexes.ProductSelectionInfo)?.Trim();
-            if (string.IsNullOrWhiteSpace(productSelectionInfo))
-            {
-                rowsWithoutProductName++;
-                continue;
-            }
-
             var transactionId = Cell(values, indexes.TransactionId)?.Trim();
             var settlementText = Cell(values, indexes.SettlementValue)?.Trim();
             var settlementTimeText = Cell(values, indexes.MachineSettlementTime)?.Trim();
+
+            if (string.IsNullOrWhiteSpace(productSelectionInfo) && string.IsNullOrWhiteSpace(settlementTimeText))
+            {
+                ignoredRows.Add(new BillingImportIgnoredRow(
+                    rowNumber,
+                    "Ignored because both Product Selection Info and Machine Settlement Time are blank."));
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(productSelectionInfo))
+                rowsWithoutProductName++;
 
             if (string.IsNullOrWhiteSpace(transactionId))
                 AddIssue(issues, rowNumber, "Transaction ID", "Transaction ID is required.");
@@ -98,7 +104,7 @@ public sealed class PosWorkbookReader
         if (transactions.Count == 0 && issues.Count == 0)
             AddIssue(issues, null, "Workbook", "No transaction rows were found below the header row.");
 
-        return new PosWorkbookResult(transactions, issues, rowsWithoutProductName);
+        return new PosWorkbookResult(transactions, issues, rowsWithoutProductName, ignoredRows);
     }
 
     private static HeaderRow FindHeader(IReadOnlyList<XElement> rows, IReadOnlyList<string> sharedStrings)
@@ -276,9 +282,13 @@ public sealed class PosWorkbookReader
 public sealed record PosWorkbookResult(
     IReadOnlyList<BillingImportTransaction> Transactions,
     IReadOnlyList<BillingImportValidationIssue> Issues,
-    int RowsWithoutProductName);
+    int RowsWithoutProductName,
+    IReadOnlyList<BillingImportIgnoredRow> IgnoredRows);
 
-public sealed class InvalidPosWorkbookException(IReadOnlyList<BillingImportValidationIssue> issues) : Exception("The POS workbook is invalid.")
+public sealed class InvalidPosWorkbookException(
+    IReadOnlyList<BillingImportValidationIssue> issues,
+    IReadOnlyList<BillingImportIgnoredRow>? ignoredRows = null) : Exception("The POS workbook is invalid.")
 {
     public IReadOnlyList<BillingImportValidationIssue> Issues { get; } = issues;
+    public IReadOnlyList<BillingImportIgnoredRow> IgnoredRows { get; } = ignoredRows ?? [];
 }

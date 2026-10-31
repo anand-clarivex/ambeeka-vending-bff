@@ -4,5 +4,7 @@ public sealed record BillingImportDuplicateResponse(
     string Message,
     Guid ExistingImportId,
     string FileName,
+    string DisplayName,
     string Status,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<BillingImportIgnoredRow> IgnoredRows);
