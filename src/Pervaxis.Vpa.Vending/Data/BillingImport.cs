@@ -6,6 +6,8 @@ public sealed class BillingImport
 
     public string OriginalFileName { get; set; } = string.Empty;
 
+    public string DisplayName { get; set; } = string.Empty;
+
     public string ContentSha256 { get; set; } = string.Empty;
 
     public string Status { get; set; } = "Validated";

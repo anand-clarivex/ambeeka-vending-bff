@@ -23,7 +23,7 @@ public sealed class BillingCalculationEngine
         var calculationOptions = options ?? new BillingCalculationOptions();
         var aliases = productPrices.ToArray();
         var inMonth = transactions
-            .Where(item => !string.IsNullOrWhiteSpace(item.ProductSelectionInfo))
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProductSelectionInfo) || item.PriceOverride is not null)
             .Where(item =>
             {
                 var date = DateOnly.FromDateTime(item.MachineSettlementTime);
@@ -102,14 +102,16 @@ public sealed class BillingCalculationEngine
 
         foreach (var transaction in transactions)
         {
-            var sourceProductName = ExtractAlias(transaction.ProductSelectionInfo!);
+            var sourceProductName = ExtractAlias(transaction.ProductSelectionInfo ?? string.Empty);
             var effectiveDate = options.EffectiveDateBasis switch
             {
                 PricingEffectiveDateBasis.WeekPeriodStart => periodStart,
                 PricingEffectiveDateBasis.TransactionDate => DateOnly.FromDateTime(transaction.MachineSettlementTime),
                 _ => throw new ArgumentOutOfRangeException(nameof(options)),
             };
-            var match = ResolvePrice(sourceProductName, effectiveDate, productPrices, options.AliasComparison);
+            var match = transaction.PriceOverride is not null
+                ? new PriceMatch(transaction.PriceOverride, default)
+                : ResolvePrice(sourceProductName, effectiveDate, productPrices, options.AliasComparison);
             if (match.Price is null)
             {
                 unmatched.Add(new UnmatchedBillingRow(
@@ -177,7 +179,7 @@ public sealed class BillingCalculationEngine
             _ => throw new ArgumentOutOfRangeException(nameof(comparison)),
         };
         var matchingAliases = prices
-            .Where(item => string.Equals(item.Alias.Trim(), alias, comparer))
+            .Where(item => string.Equals(item.Alias, alias, comparer))
             .ToArray();
         if (matchingAliases.Length == 0)
             return new PriceMatch(null, UnmatchedProductReason.AliasNotFound);

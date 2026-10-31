@@ -6,6 +6,8 @@ public sealed class BillingCalculation
 
     public string EmployerName { get; set; } = string.Empty;
 
+    public string CalculationName { get; set; } = string.Empty;
+
     public int Year { get; set; }
 
     public int Month { get; set; }

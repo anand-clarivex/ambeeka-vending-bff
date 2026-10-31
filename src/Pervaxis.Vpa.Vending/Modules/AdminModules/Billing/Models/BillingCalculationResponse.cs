@@ -4,6 +4,7 @@ namespace Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Models;
 
 public sealed record BillingCalculationResponse(
     Guid Id,
+    string CalculationName,
     string EmployerName,
     string Status,
     DateTimeOffset CreatedAt,

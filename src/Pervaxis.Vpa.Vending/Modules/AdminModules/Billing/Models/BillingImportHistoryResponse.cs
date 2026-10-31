@@ -9,6 +9,7 @@ public sealed record BillingImportHistoryResponse(
 public sealed record BillingImportHistoryItem(
     Guid Id,
     string FileName,
+    string DisplayName,
     string Status,
     int TransactionsImported,
     int? RowsWithoutProductName,

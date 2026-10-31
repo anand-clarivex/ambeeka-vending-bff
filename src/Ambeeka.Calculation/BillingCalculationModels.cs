@@ -9,7 +9,8 @@ public sealed record BillingTransactionInput(
     string? ProductSelectionInfo,
     decimal SettlementValue,
     Guid? SourceImportId = null,
-    int? SourceRowNumber = null);
+    int? SourceRowNumber = null,
+    ProductPriceAlias? PriceOverride = null);
 
 /// <summary>A product alias and price that is valid for a date range.</summary>
 public sealed record ProductPriceAlias(
@@ -139,4 +140,26 @@ public sealed record MonthlyBillingResult(
     int RowsWithoutProductName,
     BillingPeriodTotals Totals,
     bool CanFinalize,
-    IReadOnlyList<string> UnconfirmedRules);
+    IReadOnlyList<string> UnconfirmedRules)
+{
+    public IReadOnlyList<AppliedBillingResolution> AppliedResolutions { get; init; } = [];
+
+    public IReadOnlyList<IgnoredBillingTransaction> IgnoredTransactions { get; init; } = [];
+}
+
+public sealed record AppliedBillingResolution(
+    Guid ImportId,
+    int SourceRowNumber,
+    string TransactionId,
+    string Action,
+    Guid? ProductId,
+    string? ProductName,
+    string? OriginalProductSelectionInfo);
+
+public sealed record IgnoredBillingTransaction(
+    Guid ImportId,
+    int SourceRowNumber,
+    string TransactionId,
+    DateTime MachineSettlementTime,
+    decimal SettlementValue,
+    string? ProductSelectionInfo);
