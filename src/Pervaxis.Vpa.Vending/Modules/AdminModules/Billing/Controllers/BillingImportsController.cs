@@ -14,6 +14,7 @@ namespace Pervaxis.Vpa.Vending.Modules.AdminModules.Billing.Controllers;
 public sealed class BillingImportsController(
     BillingImportService importService,
     BillingProductReviewService productReviewService,
+    BillingCalculationService calculationService,
     VendingDbContext dbContext) : ControllerBase
 {
     /// <summary>Lists imported workbook metadata, newest first.</summary>
@@ -59,6 +60,63 @@ public sealed class BillingImportsController(
     {
         var review = await productReviewService.GetImportReviewAsync(id, cancellationToken);
         return review is null ? NotFound() : Ok(review);
+    }
+
+    /// <summary>Restores the saved processing state for an import without creating a calculation.</summary>
+    [HttpGet("{id:guid}/processing")]
+    [ProducesResponseType(typeof(BillingImportProcessingResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BillingImportProcessingResponse>> GetProcessingAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var import = await dbContext.BillingImports
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (import is null)
+            return NotFound();
+
+        var pricingReview = await productReviewService.GetImportReviewAsync(id, cancellationToken);
+        if (pricingReview is null)
+            return NotFound();
+
+        var ignoredRows = import.IgnoredRowsJson is null
+            ? null
+            : System.Text.Json.JsonSerializer.Deserialize<IReadOnlyList<BillingImportIgnoredRow>>(
+                import.IgnoredRowsJson,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        var calculations = await calculationService.GetImportCalculationSnapshotsAsync(id, cancellationToken);
+        var importedRows = await dbContext.BillingImportTransactions
+            .AsNoTracking()
+            .Where(item => item.BillingImportId == id)
+            .OrderBy(item => item.SourceRowNumber)
+            .Select(item => new BillingImportTransactionRow(
+                item.SourceRowNumber,
+                item.TransactionId,
+                item.SiteId,
+                item.Currency,
+                item.MachineName,
+                item.MachineSettlementTime,
+                item.ProductSelectionInfo,
+                item.SettlementValue))
+            .ToListAsync(cancellationToken);
+        var response = new BillingImportProcessingResponse(
+            new BillingImportHistoryItem(
+                import.Id,
+                import.OriginalFileName,
+                import.DisplayName,
+                import.Status,
+                import.TransactionCount,
+                import.RowsWithoutProductName,
+                import.CreatedAt,
+                import.CalculatedAt),
+            importedRows,
+            ignoredRows,
+            pricingReview,
+            calculations.LatestCalculation,
+            calculations.Items);
+
+        return Ok(response);
     }
 
     /// <summary>Permanently deletes an import that has not been used by a billing calculation.</summary>

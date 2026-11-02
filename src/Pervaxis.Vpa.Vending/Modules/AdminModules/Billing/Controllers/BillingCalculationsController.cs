@@ -1,3 +1,20 @@
+/*
+ ************************************************************************
+ * Copyright (C) 2026 Clarivex Technologies Private Limited
+ * All Rights Reserved.
+ *
+ * NOTICE: All intellectual and technical concepts contained
+ * herein are proprietary to Clarivex Technologies Private Limited
+ * and may be covered by Indian and Foreign Patents,
+ * patents in process, and are protected by trade secret or
+ * copyright law. Dissemination of this information or reproduction
+ * of this material is strictly forbidden unless prior written
+ * permission is obtained from Clarivex Technologies Private Limited.
+ *
+ * Product:   Pervaxis Platform
+ * Website:   https://clarivex.tech
+ ************************************************************************
+ */
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -26,6 +43,40 @@ public sealed class BillingCalculationsController(BillingCalculationService calc
             return BadRequest(new { message = "Page must be at least 1 and pageSize must be between 1 and 100." });
 
         return Ok(await calculationService.GetHistoryAsync(page, pageSize, cancellationToken));
+    }
+
+    /// <summary>Calculates the uploaded workbook's actual transaction-date period and stores a new snapshot.</summary>
+    [HttpPost("/api/v1/admin/billing/imports/{importId:guid}/calculations")]
+    [ProducesResponseType(typeof(BillingCalculationResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(BillingCalculationResolutionRequiredResponse), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BillingCalculationResponse>> CreateImportPreviewAsync(
+        Guid importId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] BillingImportCalculationRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request?.CalculationName?.Trim().Length > 255)
+            return BadRequest(new { message = "Calculation name must be 255 characters or fewer." });
+
+        BillingCalculationResponse? response;
+        try
+        {
+            response = await calculationService.CreateImportPreviewAsync(
+                importId,
+                request?.CalculationName,
+                request?.Resolutions,
+                cancellationToken);
+        }
+        catch (BillingCalculationResolutionException exception)
+        {
+            return StatusCode(exception.StatusCode, exception.Response);
+        }
+
+        if (response is null)
+            return NotFound(new { message = "No imported transactions were found for this import." });
+
+        return Created($"/api/v1/admin/billing/calculations/{response.Id}", response);
     }
 
     /// <summary>Calculates a monthly preview for an employer and stores the immutable result snapshot.</summary>
