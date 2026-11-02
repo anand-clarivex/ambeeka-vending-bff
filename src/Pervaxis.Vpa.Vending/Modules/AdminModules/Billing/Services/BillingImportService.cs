@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Xml;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public sealed class BillingImportService(
     BillingProductReviewService productReviewService)
 {
     public const long MaximumUploadBytes = 15 * 1024 * 1024;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<BillingImportResponse> UploadAsync(
         IFormFile? file,
@@ -87,6 +89,7 @@ public sealed class BillingImportService(
             Status = pricingReview.RowsNeedingReview > 0 ? "NeedsReview" : "Validated",
             TransactionCount = parsed.Transactions.Count,
             RowsWithoutProductName = parsed.RowsWithoutProductName,
+            IgnoredRowsJson = JsonSerializer.Serialize(parsed.IgnoredRows, JsonOptions),
             CreatedAt = now,
             Transactions = parsed.Transactions.ToList(),
         };

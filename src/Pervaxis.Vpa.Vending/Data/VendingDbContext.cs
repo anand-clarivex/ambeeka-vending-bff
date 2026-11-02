@@ -61,6 +61,7 @@ public sealed class VendingDbContext(DbContextOptions<VendingDbContext> options)
         billingImport.Property(item => item.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
         billingImport.Property(item => item.TransactionCount).HasColumnName("transaction_count");
         billingImport.Property(item => item.RowsWithoutProductName).HasColumnName("rows_without_product_name");
+        billingImport.Property(item => item.IgnoredRowsJson).HasColumnName("ignored_rows_json").HasColumnType("jsonb");
         billingImport.Property(item => item.CalculatedAt).HasColumnName("calculated_at");
         billingImport.Property(item => item.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
         billingImport.HasIndex(item => item.ContentSha256)

@@ -1,3 +1,20 @@
+/*
+ ************************************************************************
+ * Copyright (C) 2026 Clarivex Technologies Private Limited
+ * All Rights Reserved.
+ *
+ * NOTICE: All intellectual and technical concepts contained
+ * herein are proprietary to Clarivex Technologies Private Limited
+ * and may be covered by Indian and Foreign Patents,
+ * patents in process, and are protected by trade secret or
+ * copyright law. Dissemination of this information or reproduction
+ * of this material is strictly forbidden unless prior written
+ * permission is obtained from Clarivex Technologies Private Limited.
+ *
+ * Product:   Pervaxis Platform
+ * Website:   https://clarivex.tech
+ ************************************************************************
+ */
 namespace Ambeeka.Calculation;
 
 /// <summary>Pure calculation for monthly and Sunday-to-Saturday weekly billing periods.</summary>
@@ -87,6 +104,59 @@ public sealed class BillingCalculationEngine
             unconfirmedRules);
     }
 
+    public MonthlyBillingResult CalculateSingleWeek(
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        IEnumerable<BillingTransactionInput> transactions,
+        IEnumerable<ProductPriceAlias> productPrices,
+        IEmployerBillingPolicy employerPolicy,
+        BillingCalculationOptions? options = null,
+        int rowsWithoutProductName = 0)
+    {
+        ArgumentNullException.ThrowIfNull(transactions);
+        ArgumentNullException.ThrowIfNull(productPrices);
+        ArgumentNullException.ThrowIfNull(employerPolicy);
+        if (periodEnd < periodStart)
+            throw new ArgumentOutOfRangeException(nameof(periodEnd), "The billing period end must not be before its start.");
+        if (rowsWithoutProductName < 0)
+            throw new ArgumentOutOfRangeException(nameof(rowsWithoutProductName));
+
+        var sourceRows = transactions.ToArray();
+        var periodTransactions = sourceRows
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProductSelectionInfo) || item.PriceOverride is not null)
+            .Where(item =>
+            {
+                var date = DateOnly.FromDateTime(item.MachineSettlementTime);
+                return date >= periodStart && date <= periodEnd;
+            })
+            .ToArray();
+        var calculationOptions = options ?? new BillingCalculationOptions();
+        var blankProductRows = rowsWithoutProductName + sourceRows.Count(item =>
+            string.IsNullOrWhiteSpace(item.ProductSelectionInfo)
+            && DateOnly.FromDateTime(item.MachineSettlementTime) >= periodStart
+            && DateOnly.FromDateTime(item.MachineSettlementTime) <= periodEnd);
+
+        var week = CalculateWeek(
+            periodStart,
+            periodEnd,
+            periodStart,
+            periodTransactions,
+            productPrices.ToArray(),
+            employerPolicy,
+            calculationOptions);
+        var unconfirmedRules = GetUnconfirmedRules(employerPolicy, calculationOptions);
+        var canFinalize = week.UnmatchedRows.Count == 0 && unconfirmedRules.Count == 0;
+
+        return new MonthlyBillingResult(
+            periodStart.Year,
+            periodStart.Month,
+            [week],
+            blankProductRows,
+            week.Totals,
+            canFinalize,
+            unconfirmedRules);
+    }
+
     private static WeeklyBillingResult CalculateWeek(
         DateOnly periodStart,
         DateOnly periodEnd,
@@ -98,6 +168,7 @@ public sealed class BillingCalculationEngine
     {
         var rows = new List<CalculatedBillingRow>();
         var unmatched = new List<UnmatchedBillingRow>();
+        var excludedRows = new List<ExcludedBillingRow>();
         var excluded = 0;
 
         foreach (var transaction in transactions)
@@ -131,6 +202,17 @@ public sealed class BillingCalculationEngine
             if (netPrice <= 0m)
             {
                 excluded++;
+                excludedRows.Add(new ExcludedBillingRow(
+                    transaction.TransactionId,
+                    transaction.MachineSettlementTime,
+                    sourceProductName,
+                    price,
+                    freeItem,
+                    netPrice,
+                    transaction.SettlementValue,
+                    BillingRowExclusionReason.NonpositiveNetPrice,
+                    transaction.SourceImportId,
+                    transaction.SourceRowNumber));
                 continue;
             }
 
@@ -163,7 +245,10 @@ public sealed class BillingCalculationEngine
             rows,
             unmatched,
             excluded,
-            new BillingPeriodTotals(totalVends, totalPrice, totalFree, totalNet, totalSettlement, amountDue));
+            new BillingPeriodTotals(totalVends, totalPrice, totalFree, totalNet, totalSettlement, amountDue))
+        {
+            ExcludedRows = excludedRows,
+        };
     }
 
     private static PriceMatch ResolvePrice(
@@ -229,3 +314,4 @@ public sealed class BillingCalculationEngine
 
     private sealed record PriceMatch(ProductPriceAlias? Price, UnmatchedProductReason Reason);
 }
+

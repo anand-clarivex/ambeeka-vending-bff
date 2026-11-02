@@ -16,6 +16,9 @@ public sealed class BillingImport
 
     public int? RowsWithoutProductName { get; set; }
 
+    /// <summary>Ignored source rows captured during upload; null means the import predates this persistence.</summary>
+    public string? IgnoredRowsJson { get; set; }
+
     /// <summary>Set when a completed billing calculation uses this import.</summary>
     public DateTimeOffset? CalculatedAt { get; set; }
 

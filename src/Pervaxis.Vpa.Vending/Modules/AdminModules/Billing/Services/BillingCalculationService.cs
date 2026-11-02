@@ -1,3 +1,20 @@
+/*
+ ************************************************************************
+ * Copyright (C) 2026 Clarivex Technologies Private Limited
+ * All Rights Reserved.
+ *
+ * NOTICE: All intellectual and technical concepts contained
+ * herein are proprietary to Clarivex Technologies Private Limited
+ * and may be covered by Indian and Foreign Patents,
+ * patents in process, and are protected by trade secret or
+ * copyright law. Dissemination of this information or reproduction
+ * of this material is strictly forbidden unless prior written
+ * permission is obtained from Clarivex Technologies Private Limited.
+ *
+ * Product:   Pervaxis Platform
+ * Website:   https://clarivex.tech
+ ************************************************************************
+ */
 using System.Text.Json;
 using System.Globalization;
 using Ambeeka.Calculation;
@@ -252,10 +269,218 @@ public sealed class BillingCalculationService(
             result);
     }
 
+    /// <summary>Calculates only the transactions from one imported workbook and stores a new immutable snapshot.</summary>
+    public async Task<BillingCalculationResponse?> CreateImportPreviewAsync(
+        Guid importId,
+        string? requestedCalculationName,
+        IReadOnlyList<BillingImportCalculationRowResolution>? requestedResolutions,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var import = await dbContext.BillingImports
+            .FromSqlInterpolated($"SELECT * FROM public.billing_imports WHERE id = {importId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (import is null)
+            return null;
+
+        var sourceRows = await dbContext.BillingImportTransactions
+            .AsNoTracking()
+            .Where(item => item.BillingImportId == importId)
+            .OrderBy(item => item.MachineSettlementTime)
+            .ThenBy(item => item.SourceRowNumber)
+            .ToListAsync(cancellationToken);
+        if (sourceRows.Count == 0)
+            return null;
+
+        var normalizedEmployerName = sourceRows
+            .Select(item => item.MachineName?.Trim())
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? import.DisplayName;
+        var periodStart = sourceRows.Min(item => DateOnly.FromDateTime(item.MachineSettlementTime));
+        var periodEnd = sourceRows.Max(item => DateOnly.FromDateTime(item.MachineSettlementTime));
+        var calculationName = string.IsNullOrWhiteSpace(requestedCalculationName)
+            ? BuildDefaultWeeklyCalculationName(normalizedEmployerName, periodStart, periodEnd)
+            : requestedCalculationName.Trim();
+
+        var products = await dbContext.VendingProducts
+            .AsNoTracking()
+            .OrderBy(item => item.SourceRowNumber ?? int.MaxValue)
+            .ThenBy(item => item.Id)
+            .ToListAsync(cancellationToken);
+        var productPrices = BuildUnversionedPreviewPrices(products);
+        var review = BillingProductReviewService.Analyze(importId, sourceRows, products);
+        var issueByRow = review.Issues.ToDictionary(item => (item.ImportId, item.SourceRowNumber));
+        var resolutionByRow = new Dictionary<(Guid ImportId, int SourceRowNumber), BillingImportCalculationRowResolution>();
+
+        foreach (var resolution in requestedResolutions ?? [])
+        {
+            var key = (importId, resolution.SourceRowNumber);
+            if (!issueByRow.TryGetValue(key, out var issue))
+                throw ResolutionError(
+                    StatusCodes.Status400BadRequest,
+                    "A resolution refers to a row that does not need pricing review in this import.",
+                    [],
+                    review.AvailableProducts);
+            if (!resolutionByRow.TryAdd(key, resolution))
+                throw ResolutionError(
+                    StatusCodes.Status400BadRequest,
+                    "A row may have only one resolution.",
+                    [issue],
+                    review.AvailableProducts);
+
+            if (string.Equals(resolution.Action, "Map", StringComparison.OrdinalIgnoreCase))
+            {
+                if (resolution.ProductId is null
+                    || products.All(product => product.Id != resolution.ProductId.Value || product.VendPrice <= 0m))
+                {
+                    throw ResolutionError(
+                        StatusCodes.Status400BadRequest,
+                        "Map resolutions require a catalog product with a positive price.",
+                        [issue],
+                        review.AvailableProducts);
+                }
+            }
+            else if (string.Equals(resolution.Action, "Ignore", StringComparison.OrdinalIgnoreCase))
+            {
+                if (resolution.ProductId is not null)
+                    throw ResolutionError(
+                        StatusCodes.Status400BadRequest,
+                        "Ignore resolutions must not include a productId.",
+                        [issue],
+                        review.AvailableProducts);
+            }
+            else
+            {
+                throw ResolutionError(
+                    StatusCodes.Status400BadRequest,
+                    "Resolution action must be Map or Ignore.",
+                    [issue],
+                    review.AvailableProducts);
+            }
+        }
+
+        var unresolvedIssues = review.Issues
+            .Where(issue => !resolutionByRow.ContainsKey((issue.ImportId, issue.SourceRowNumber)))
+            .ToArray();
+        if (unresolvedIssues.Length > 0)
+            throw ResolutionError(
+                StatusCodes.Status422UnprocessableEntity,
+                "Map or ignore every pricing review row before creating the calculation.",
+                unresolvedIssues,
+                review.AvailableProducts);
+
+        var productById = products.ToDictionary(item => item.Id);
+        var inputRows = new List<BillingTransactionInput>(sourceRows.Count);
+        var appliedResolutions = new List<AppliedBillingResolution>();
+        var ignoredTransactions = new List<IgnoredBillingTransaction>();
+        foreach (var item in sourceRows)
+        {
+            var key = (item.BillingImportId, item.SourceRowNumber);
+            if (!issueByRow.TryGetValue(key, out var issue))
+            {
+                inputRows.Add(new BillingTransactionInput(
+                    item.TransactionId,
+                    item.MachineSettlementTime,
+                    item.ProductSelectionInfo,
+                    item.SettlementValue,
+                    item.BillingImportId,
+                    item.SourceRowNumber));
+                continue;
+            }
+
+            var resolution = resolutionByRow[key];
+            if (string.Equals(resolution.Action, "Ignore", StringComparison.OrdinalIgnoreCase))
+            {
+                ignoredTransactions.Add(new IgnoredBillingTransaction(
+                    item.BillingImportId,
+                    item.SourceRowNumber,
+                    item.TransactionId,
+                    item.MachineSettlementTime,
+                    item.SettlementValue,
+                    item.ProductSelectionInfo));
+                appliedResolutions.Add(new AppliedBillingResolution(
+                    item.BillingImportId,
+                    item.SourceRowNumber,
+                    item.TransactionId,
+                    "Ignore",
+                    null,
+                    null,
+                    item.ProductSelectionInfo));
+                continue;
+            }
+
+            var product = productById[resolution.ProductId!.Value];
+            inputRows.Add(new BillingTransactionInput(
+                item.TransactionId,
+                item.MachineSettlementTime,
+                item.ProductSelectionInfo,
+                item.SettlementValue,
+                item.BillingImportId,
+                item.SourceRowNumber,
+                new ProductPriceAlias(product.ProductName, product.SystemProductName, product.VendPrice, DateOnly.MinValue)));
+            appliedResolutions.Add(new AppliedBillingResolution(
+                item.BillingImportId,
+                item.SourceRowNumber,
+                item.TransactionId,
+                "Map",
+                product.Id,
+                product.ProductName,
+                item.ProductSelectionInfo));
+        }
+
+        var result = calculationEngine.CalculateSingleWeek(
+            periodStart,
+            periodEnd,
+            inputRows,
+            productPrices,
+            new ZeroSettlementSubsidyPolicy()) with
+        {
+            AppliedResolutions = appliedResolutions,
+            IgnoredTransactions = ignoredTransactions,
+        };
+
+        var createdAt = DateTimeOffset.UtcNow;
+        import.CalculatedAt ??= createdAt;
+        var calculation = new BillingCalculation
+        {
+            Id = Guid.NewGuid(),
+            EmployerName = normalizedEmployerName,
+            CalculationName = calculationName,
+            Year = periodStart.Year,
+            Month = periodStart.Month,
+            Status = result.CanFinalize ? "ReadyForReview" : "NeedsReview",
+            ResultJson = JsonSerializer.Serialize(result, JsonOptions),
+            CreatedAt = createdAt,
+            Imports =
+            [
+                new BillingCalculationImport
+                {
+                    BillingImportId = import.Id,
+                    BillingImport = import,
+                },
+            ],
+        };
+        dbContext.BillingCalculations.Add(calculation);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new BillingCalculationResponse(
+            calculation.Id,
+            calculation.CalculationName,
+            calculation.EmployerName,
+            calculation.Status,
+            calculation.CreatedAt,
+            result)
+        {
+            ImportId = import.Id,
+        };
+    }
+
     public async Task<BillingCalculationResponse?> GetAsync(Guid id, CancellationToken cancellationToken)
     {
         var calculation = await dbContext.BillingCalculations
             .AsNoTracking()
+            .Include(item => item.Imports)
             .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
         if (calculation is null)
             return null;
@@ -268,7 +493,63 @@ public sealed class BillingCalculationService(
             calculation.EmployerName,
             calculation.Status,
             calculation.CreatedAt,
-            result);
+            result)
+        {
+            ImportId = calculation.Imports.Count == 1
+                ? calculation.Imports.Single().BillingImportId
+                : null,
+        };
+    }
+
+    /// <summary>Returns the saved single-import, single-week snapshots newest first.</summary>
+    public async Task<BillingImportCalculationSnapshotsResponse> GetImportCalculationSnapshotsAsync(
+        Guid importId,
+        CancellationToken cancellationToken)
+    {
+        var calculations = await dbContext.BillingCalculations
+            .AsNoTracking()
+            .Include(item => item.Imports)
+            .Where(item => item.Imports.Any(link => link.BillingImportId == importId))
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.Id)
+            .ToListAsync(cancellationToken);
+
+        var snapshots = calculations
+            .Where(item => item.Imports.Count == 1 && item.Imports[0].BillingImportId == importId)
+            .Select(item => new
+            {
+                Calculation = item,
+                Result = JsonSerializer.Deserialize<MonthlyBillingResult>(item.ResultJson, JsonOptions)
+                    ?? throw new JsonException($"Calculation {item.Id} has an empty result snapshot."),
+            })
+            .Where(item => item.Result.Weeks.Count == 1)
+            .ToList();
+
+        var snapshotItems = snapshots
+            .Select(item => new BillingImportCalculationSnapshotItem(
+                item.Calculation.Id,
+                item.Calculation.CalculationName,
+                item.Calculation.Status,
+                item.Calculation.CreatedAt))
+            .ToList();
+
+        BillingCalculationResponse? latestCalculation = null;
+        if (snapshots.Count > 0)
+        {
+            var latest = snapshots[0];
+            latestCalculation = new BillingCalculationResponse(
+                latest.Calculation.Id,
+                latest.Calculation.CalculationName,
+                latest.Calculation.EmployerName,
+                latest.Calculation.Status,
+                latest.Calculation.CreatedAt,
+                latest.Result)
+            {
+                ImportId = importId,
+            };
+        }
+
+        return new BillingImportCalculationSnapshotsResponse(latestCalculation, snapshotItems);
     }
 
     public async Task<BillingCalculationHistoryResponse> GetHistoryAsync(
@@ -299,6 +580,22 @@ public sealed class BillingCalculationService(
     private static string BuildDefaultCalculationName(string employerName, int year, int month)
     {
         var suffix = $" · {new DateTime(year, month, 1).ToString("MMM yyyy", CultureInfo.InvariantCulture)}";
+        var employerNameLength = Math.Max(0, 255 - suffix.Length);
+        var safeEmployerName = employerName.Length <= employerNameLength
+            ? employerName
+            : employerName[..employerNameLength].TrimEnd();
+        return safeEmployerName + suffix;
+    }
+
+    private static string BuildDefaultWeeklyCalculationName(
+        string employerName,
+        DateOnly periodStart,
+        DateOnly periodEnd)
+    {
+        var dateRange = periodStart == periodEnd
+            ? periodStart.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)
+            : $"{periodStart.ToString("MMM d", CultureInfo.InvariantCulture)}–{periodEnd.ToString("MMM d, yyyy", CultureInfo.InvariantCulture)}";
+        var suffix = $" - {dateRange}";
         var employerNameLength = Math.Max(0, 255 - suffix.Length);
         var safeEmployerName = employerName.Length <= employerNameLength
             ? employerName

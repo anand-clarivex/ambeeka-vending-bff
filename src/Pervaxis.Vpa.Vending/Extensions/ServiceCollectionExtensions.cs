@@ -34,6 +34,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<PosWorkbookReader>();
         services.AddScoped<BillingProductReviewService>();
         services.AddScoped<BillingImportService>();
+        services.AddScoped<BillingDashboardService>();
         services.AddSingleton<BillingCalculationEngine>();
         services.AddScoped<BillingCalculationService>();
         services.AddScoped<BillingPosCleanupService>();

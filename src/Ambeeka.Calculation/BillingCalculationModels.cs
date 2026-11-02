@@ -1,3 +1,20 @@
+/*
+ ************************************************************************
+ * Copyright (C) 2026 Clarivex Technologies Private Limited
+ * All Rights Reserved.
+ *
+ * NOTICE: All intellectual and technical concepts contained
+ * herein are proprietary to Clarivex Technologies Private Limited
+ * and may be covered by Indian and Foreign Patents,
+ * patents in process, and are protected by trade secret or
+ * copyright law. Dissemination of this information or reproduction
+ * of this material is strictly forbidden unless prior written
+ * permission is obtained from Clarivex Technologies Private Limited.
+ *
+ * Product:   Pervaxis Platform
+ * Website:   https://clarivex.tech
+ ************************************************************************
+ */
 using System.Text.Json.Serialization;
 
 namespace Ambeeka.Calculation;
@@ -131,7 +148,34 @@ public sealed record WeeklyBillingResult(
     IReadOnlyList<CalculatedBillingRow> Rows,
     IReadOnlyList<UnmatchedBillingRow> UnmatchedRows,
     int RowsExcludedForNonpositiveNetPrice,
-    BillingPeriodTotals Totals);
+    BillingPeriodTotals Totals)
+{
+    /// <summary>
+    /// Transactions excluded from this week's calculated rows, or null for snapshots created before exclusion details were stored.
+    /// </summary>
+    public IReadOnlyList<ExcludedBillingRow>? ExcludedRows { get; init; }
+}
+
+/// <summary>Details for one transaction excluded from calculated billing rows.</summary>
+public sealed record ExcludedBillingRow(
+    string TransactionId,
+    DateTime MachineSettlementTime,
+    string SourceProductName,
+    decimal Price,
+    decimal FreeItem,
+    decimal NetPrice,
+    decimal Settlement,
+    BillingRowExclusionReason Reason,
+    Guid? SourceImportId = null,
+    int? SourceRowNumber = null);
+
+/// <summary>Reason a transaction was omitted from calculated billing rows.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum BillingRowExclusionReason
+{
+    /// <summary>The price after the free-item adjustment was zero or less.</summary>
+    NonpositiveNetPrice,
+}
 
 public sealed record MonthlyBillingResult(
     int Year,
@@ -163,3 +207,4 @@ public sealed record IgnoredBillingTransaction(
     DateTime MachineSettlementTime,
     decimal SettlementValue,
     string? ProductSelectionInfo);
+

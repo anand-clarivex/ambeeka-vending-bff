@@ -1,3 +1,20 @@
+/*
+ ************************************************************************
+ * Copyright (C) 2026 Clarivex Technologies Private Limited
+ * All Rights Reserved.
+ *
+ * NOTICE: All intellectual and technical concepts contained
+ * herein are proprietary to Clarivex Technologies Private Limited
+ * and may be covered by Indian and Foreign Patents,
+ * patents in process, and are protected by trade secret or
+ * copyright law. Dissemination of this information or reproduction
+ * of this material is strictly forbidden unless prior written
+ * permission is obtained from Clarivex Technologies Private Limited.
+ *
+ * Product:   Pervaxis Platform
+ * Website:   https://clarivex.tech
+ ************************************************************************
+ */
 using System.Globalization;
 using System.IO.Compression;
 using System.Xml;
@@ -61,7 +78,9 @@ public sealed class PosWorkbookReader
             {
                 ignoredRows.Add(new BillingImportIgnoredRow(
                     rowNumber,
-                    "Ignored because both Product Selection Info and Machine Settlement Time are blank."));
+                    "Ignored because both Product Selection Info and Machine Settlement Time are blank.",
+                    transactionId,
+                    BillingImportIgnoredRowReason.ProductInfoAndSettlementTimeBlank));
                 continue;
             }
 
@@ -292,3 +311,4 @@ public sealed class InvalidPosWorkbookException(
     public IReadOnlyList<BillingImportValidationIssue> Issues { get; } = issues;
     public IReadOnlyList<BillingImportIgnoredRow> IgnoredRows { get; } = ignoredRows ?? [];
 }
+
