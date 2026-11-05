@@ -32,6 +32,8 @@ dotnet test
 dotnet run --project src/Pervaxis.Vpa.Vending
 ```
 
+The default local launch profile starts the API at `http://127.0.0.1:5080`.
+
 ## Configuration
 
 Configuration is loaded from `appsettings.json` and environment-specific overrides.
@@ -39,9 +41,48 @@ Secrets are stored in AWS Secrets Manager at `{env}/vpa/vending-service/config`.
 
 ### PostgreSQL (local development)
 
-The API reads its PostgreSQL connection string from
-`ConnectionStrings:VendingDatabase`. Keep local credentials out of tracked
-configuration files; use .NET user-secrets for local development:
+`Database:RootCertificate` overrides the certificate path from the secret for local
+Windows development. Set it to your local RDS CA bundle path; TLS verification
+remains enabled. The secret itself can retain its production container path.
+
+Store the machine-specific certificate path locally:
+
+```powershell
+dotnet user-secrets set "Database:RootCertificate" "<local RDS CA bundle path>" --project src/Pervaxis.Vpa.Vending
+```
+
+`Database:CredentialsSecretId` identifies the RDS-managed secret containing
+`username` and `password`. These replace the credentials in the connection-string
+secret on every refresh. Local development uses this because the connection-string
+secret does not rotate with the RDS-managed password. The AWS profile needs read
+permission for both secrets and decryption permission for their encryption keys.
+
+Development uses the `default-ambeeka` AWS profile in `us-east-1` to read the
+database secret configured by `Database:SecretId`. The secret is JSON with a
+`ConnectionStrings__VendingDatabase` field containing the full Npgsql connection
+string, including its TLS settings. The profile needs `secretsmanager:GetSecretValue`
+and, for a customer-managed encryption key, `kms:Decrypt`.
+
+The API and `/health/ready` share a connection pool. First database use reads
+`AWSCURRENT`. There is no periodic polling. If opening a connection fails with
+PostgreSQL `28P01` (invalid password), the API retrieves the current secrets,
+updates the pool's password and retries opening that connection once. Concurrent
+authentication failures share a refresh, with a five-second cooldown between
+lookups, including failed lookups. Other errors do not trigger secret retrieval.
+SQL commands and transactions are never replayed by this mechanism. New physical
+connections use the refreshed password; existing sessions remain pooled.
+Changes to the host, username, database or TLS settings require a restart.
+No secret values are written to configuration files. An inaccessible secret causes
+database access and readiness to fail rather than falling back to an old password.
+
+Production settings also enable secret retrieval, using the ECS task role instead
+of a local profile. Apply the role permissions and deploy a new task revision as
+described in [the ECS deployment guide](deployment/ECS_DATABASE_SECRETS.md).
+To use the static connection string locally instead, clear `Database:SecretId`.
+
+When `Database:SecretId` is empty, the API instead reads a static connection string
+from `ConnectionStrings:VendingDatabase`. For this optional mode, keep credentials
+out of tracked files by using .NET user secrets:
 
 ```powershell
 dotnet user-secrets set "ConnectionStrings:VendingDatabase" "<local PostgreSQL connection string>" --project src/Pervaxis.Vpa.Vending

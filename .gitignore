@@ -43,6 +43,7 @@ Thumbs.db
 *.suo
 *.rsuser
 launchSettings.json
+!src/Pervaxis.Vpa.Vending/Properties/launchSettings.json
 
 ## Secrets — never commit real credentials
 appsettings.*.local.json

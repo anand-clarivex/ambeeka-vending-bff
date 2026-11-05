@@ -1,27 +1,22 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
+using Pervaxis.Vpa.Vending.Infrastructure.Database;
 
 namespace Pervaxis.Vpa.Vending.Infrastructure.HealthChecks;
 
 public sealed class PostgresHealthCheck(
-    IConfiguration configuration,
+    IServiceProvider services,
     ILogger<PostgresHealthCheck> logger) : IHealthCheck
 {
     public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        var connectionString = configuration.GetConnectionString("VendingDatabase");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return HealthCheckResult.Unhealthy(
-                "PostgreSQL connection string is not configured.");
-        }
-
         try
         {
-            await using var connection = new NpgsqlConnection(connectionString);
-            await connection.OpenAsync(cancellationToken);
+            var dataSource = services.GetRequiredService<NpgsqlDataSource>();
+            await using var connection = dataSource.CreateConnection();
+            await services.GetRequiredService<DatabaseConnectionOpener>().OpenAsync(connection, cancellationToken);
 
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT 1";
