@@ -29,13 +29,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.OutputCaching;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Diagnostics;
 using Pervaxis.Vpa.Vending.Auth;
 using Pervaxis.Vpa.Vending.Services;
 using Pervaxis.Vpa.Vending.Infrastructure.HealthChecks;
-using Pervaxis.Vpa.Vending.Data;
+using Pervaxis.Vpa.Vending.Infrastructure.Database;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,14 +44,9 @@ builder.AddForgeSerilog();
 
 
 builder.Services.AddVendingServiceServices(builder.Configuration);
-var vendingDatabaseConnectionString = builder.Configuration.GetConnectionString("VendingDatabase");
-builder.Services.AddDbContext<VendingDbContext>(options =>
-{
-    if (!string.IsNullOrWhiteSpace(vendingDatabaseConnectionString))
-        options.UseNpgsql(vendingDatabaseConnectionString);
-});
 builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
 builder.Services.AddAWSService<IAmazonSecretsManager>();
+builder.Services.AddVendingDatabase(builder.Configuration);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddResponseCompression(options =>

@@ -6,6 +6,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["Directory.Packages.props", "./"]
+COPY ["src/Ambeeka.Calculation/Ambeeka.Calculation.csproj", "src/Ambeeka.Calculation/"]
 COPY ["src/Pervaxis.Vpa.Vending/Pervaxis.Vpa.Vending.csproj", "src/Pervaxis.Vpa.Vending/"]
 RUN dotnet restore "src/Pervaxis.Vpa.Vending/Pervaxis.Vpa.Vending.csproj"
 COPY . .
