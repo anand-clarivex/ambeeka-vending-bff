@@ -117,6 +117,18 @@ alias and uses the same Admin group authorization.
 
 ## Authentication
 
+### Saved calculation Excel export
+
+Admin users can download `GET /api/v1/admin/billing/calculations/{id}/workbook`.
+The response is an `.xlsx` attachment named `weekly-billing-{id}.xlsx`; a missing
+calculation returns 404. The workbook uses the saved snapshot without recalculation.
+It always contains **Calculated Data** and **Unmatched Products** worksheets,
+covering all weeks in snapshot order with week start/end columns. Each sheet
+starts with column headers, followed by transaction rows. Settlement times retain
+the stored machine time and are written as `yyyy-MM-dd HH:mm:ss` text without a
+timezone conversion. Monetary values are numeric cells with two decimal places.
+Ignored and excluded transactions are outside this export's scope.
+
 The API uses Amazon Cognito User Pools for user authentication. The client application
 signs users in and sends the Cognito access token as `Authorization: Bearer <token>`.
 The API validates the token signature, issuer, lifetime, `token_use`, and configured

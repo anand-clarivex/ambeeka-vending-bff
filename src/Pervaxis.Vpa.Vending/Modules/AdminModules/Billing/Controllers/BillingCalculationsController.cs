@@ -119,6 +119,18 @@ public sealed class BillingCalculationsController(BillingCalculationService calc
         return Created($"/api/v1/admin/billing/calculations/{response.Id}", response);
     }
 
+    /// <summary>Downloads the calculated and unmatched rows from a saved snapshot.</summary>
+    [HttpGet("{id:guid}/workbook")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DownloadWorkbookAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var snapshot = await calculationService.GetAsync(id, cancellationToken);
+        if (snapshot is null) return NotFound();
+        return File(BillingCalculationWorkbook.Create(snapshot), BillingCalculationWorkbook.ContentType,
+            $"weekly-billing-{id}.xlsx");
+    }
+
     /// <summary>Retrieves a previously stored calculation snapshot.</summary>
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(BillingCalculationResponse), StatusCodes.Status200OK)]
